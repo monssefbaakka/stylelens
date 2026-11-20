@@ -1,0 +1,23 @@
+# Semaine 1 : uniquement PostgreSQL + pgvector.
+# Les autres services (inference-service, catalog-api, frontend, redis) seront ajoutés dans les phases suivantes.
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: stylelens-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-stylelens}
+      POSTGRES_USER: ${POSTGRES_USER:-stylelens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stylelens}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
