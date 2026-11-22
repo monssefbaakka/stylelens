@@ -51,7 +51,7 @@ Voir [ml/README.md](ml/README.md) : téléchargement de *Fashion Product Images*
 | Phase | Contenu | Statut |
 |-------|---------|--------|
 | P0 | Cadrage, environnement, dépôt Git | En cours |
-| P1 | Données : collecte, nettoyage, séparation par produit | À faire |
+| P1 | Données : collecte, nettoyage, séparation par produit | En cours (pipeline prêt, à exécuter sur le jeu complet) |
 | P2 | Modèle de base : embeddings CNN + recherche kNN simple | À faire |
 | P3 | Transfert d'apprentissage, fine-tuning, évaluation (Precision@K, Recall@K, mAP) | À faire |
 | P4 | Index vectoriel pgvector (HNSW) | À faire |
