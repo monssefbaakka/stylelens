@@ -23,7 +23,7 @@ Détails : [docs/architecture.md](docs/architecture.md).
 
 ```
 stylelens/
-├── ml/                 # notebooks et code d'expérimentation (données, CNN, évaluation)
+├── ml/                 # pipeline IA : données (P1), embeddings CNN + kNN + évaluation (P2)
 ├── inference-service/  # service IA FastAPI (à venir, P5)
 ├── catalog-api/        # API métier Spring Boot (à venir, P4–P5)
 ├── frontend/           # interface React + TypeScript (à venir, P6)
@@ -52,7 +52,7 @@ Voir [ml/README.md](ml/README.md) : téléchargement de *Fashion Product Images*
 |-------|---------|--------|
 | P0 | Cadrage, environnement, dépôt Git | En cours |
 | P1 | Données : collecte, nettoyage, séparation par produit | En cours (pipeline prêt, à exécuter sur le jeu complet) |
-| P2 | Modèle de base : embeddings CNN + recherche kNN simple | À faire |
+| P2 | Modèle de base : embeddings CNN + recherche kNN simple | En cours (extraction, recherche et évaluation prêtes, à exécuter sur le jeu complet) |
 | P3 | Transfert d'apprentissage, fine-tuning, évaluation (Precision@K, Recall@K, mAP) | À faire |
 | P4 | Index vectoriel pgvector (HNSW) | À faire |
 | P5 | Service IA FastAPI + API catalogue Spring Boot | À faire |
