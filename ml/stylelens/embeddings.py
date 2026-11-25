@@ -12,6 +12,8 @@ Sortie (``--out``, un dossier par modèle) :
 Usage (depuis ml/) :
     python -m stylelens.embeddings --catalog data/processed/catalog.csv \\
         --data-dir data/fashion-product-images-small --model resnet50 --out data/embeddings/resnet50
+    # modèle fine-tuné (P3)
+    python -m stylelens.embeddings --checkpoint models/resnet50-ft/model.pt
 """
 
 from __future__ import annotations
@@ -65,6 +67,65 @@ def build_model(name: str, pretrained: bool = True) -> nn.Module:
     model = spec.builder(weights=spec.weights if pretrained else None)
     setattr(model, spec.head, nn.Identity())
     return model.eval()
+
+
+class EmbeddingNet(nn.Module):
+    """Backbone CNN + projection optionnelle, sortie normalisée L2.
+
+    Sans projection (``embed_dim=None``), l'embedding est la sortie du pooling
+    global du backbone : c'est le modèle de base P2. Avec projection, une couche
+    linéaire suivie d'une normalisation par lot réduit la dimension (P3).
+    """
+
+    def __init__(self, backbone: str, embed_dim: int | None = None, pretrained: bool = True):
+        super().__init__()
+        self.backbone_name = backbone
+        self.backbone = build_model(backbone, pretrained=pretrained)
+        in_dim = BACKBONES[backbone].dim
+        self.embed_dim = embed_dim or in_dim
+        self.head = (
+            nn.Sequential(nn.Linear(in_dim, embed_dim), nn.BatchNorm1d(embed_dim))
+            if embed_dim else nn.Identity()
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.normalize(self.head(self.backbone(x).flatten(1)), dim=1)
+
+
+def load_checkpoint(path: Path, map_location: str | torch.device = "cpu") -> tuple[EmbeddingNet, dict]:
+    """Recharge un modèle fine-tuné enregistré par ``stylelens.train``."""
+    ckpt = torch.load(path, map_location=map_location, weights_only=True)
+    model = EmbeddingNet(ckpt["backbone"], ckpt["embed_dim"], pretrained=False)
+    model.load_state_dict(ckpt["state_dict"])
+    return model.eval(), ckpt
+
+
+def load_embedding_model(
+    model_name: str | None = None,
+    checkpoint: Path | None = None,
+    pretrained: bool = True,
+) -> tuple[nn.Module, dict]:
+    """Modèle d'extraction : fine-tuné si ``checkpoint`` est donné, sinon pré-entraîné ImageNet."""
+    if checkpoint:
+        model, ckpt = load_checkpoint(checkpoint)
+        if model_name and model_name != ckpt["backbone"]:
+            raise ValueError(f"--model {model_name} différent du backbone du checkpoint ({ckpt['backbone']})")
+        info = {
+            "model": ckpt["backbone"],
+            "fine_tuned": True,
+            "checkpoint": str(checkpoint),
+            "image_size": ckpt["image_size"],
+            "weights": f"fine-tuné (époque {ckpt['epoch']})",
+        }
+        return model, info
+    model_name = model_name or "resnet50"
+    info = {
+        "model": model_name,
+        "fine_tuned": False,
+        "checkpoint": None,
+        "weights": str(BACKBONES[model_name].weights) if pretrained else None,
+    }
+    return build_model(model_name, pretrained=pretrained), info
 
 
 class PadToSquare:
@@ -154,10 +215,11 @@ def embed_images(
     model_name: str,
     device: str | None = None,
     image_size: int = 224,
+    checkpoint: Path | None = None,
 ) -> np.ndarray:
     """Raccourci pour quelques images (requête de recherche)."""
-    return extract(build_model(model_name), paths, image_size=image_size, device=device)
-
+    model, _ = load_embedding_model(model_name, checkpoint)
+    return extract(model, paths, image_size=image_size, device=device)
 
 # --------------------------------------------------------------------------- pipeline
 
@@ -165,14 +227,15 @@ def build_index(
     catalog_csv: Path,
     data_dir: Path,
     out_dir: Path,
-    model_name: str = "resnet50",
-    image_size: int = 224,
+    model_name: str | None = "resnet50",
+    image_size: int | None = None,
     batch_size: int = 64,
     num_workers: int = 0,
     device: str | None = None,
     limit: int | None = None,
     pretrained: bool = True,
     progress: bool = True,
+    checkpoint: Path | None = None,
 ) -> dict:
     """Calcule les embeddings de tout le catalogue P1 et les enregistre."""
     catalog = pd.read_csv(catalog_csv, dtype={"group": "string"})
@@ -184,15 +247,16 @@ def build_index(
     paths = [Path(data_dir) / p for p in catalog["image_path"]]
 
     dev = resolve_device(device)
-    model = build_model(model_name, pretrained=pretrained)
+    model, info = load_embedding_model(model_name, checkpoint, pretrained)
+    image_size = image_size or info.pop("image_size", None) or 224
+    info.pop("image_size", None)
     t0 = time.perf_counter()
     embeddings = extract(model, paths, image_size, batch_size, num_workers, dev, progress)
     elapsed = time.perf_counter() - t0
 
     meta = {
-        "model": model_name,
+        **info,
         "pretrained": pretrained,
-        "weights": str(BACKBONES[model_name].weights) if pretrained else None,
         "dim": int(embeddings.shape[1]),
         "n_images": int(len(embeddings)),
         "image_size": image_size,
@@ -212,21 +276,29 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--catalog", type=Path, default=Path("data/processed/catalog.csv"))
     parser.add_argument("--data-dir", type=Path, default=Path("data/fashion-product-images-small"))
-    parser.add_argument("--model", choices=sorted(BACKBONES), default="resnet50")
-    parser.add_argument("--out", type=Path, help="défaut : data/embeddings/<model>")
-    parser.add_argument("--image-size", type=int, default=224)
+    parser.add_argument("--model", choices=sorted(BACKBONES), help="défaut : resnet50, ou le backbone du checkpoint")
+    parser.add_argument("--checkpoint", type=Path, help="modèle fine-tuné (stylelens.train), ex. models/resnet50-ft/model.pt")
+    parser.add_argument("--out", type=Path, help="défaut : data/embeddings/<model>, ou <dossier du checkpoint>")
+    parser.add_argument("--image-size", type=int, help="défaut : 224, ou la taille d'entraînement du checkpoint")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--device", default=None, help="cuda, mps ou cpu (défaut : automatique)")
     parser.add_argument("--limit", type=int, help="sous-échantillon stratifié par split (essai rapide)")
     args = parser.parse_args(argv)
 
-    out = args.out or Path("data/embeddings") / args.model
+    if args.out:
+        out = args.out
+    elif args.checkpoint:
+        out = Path("data/embeddings") / args.checkpoint.parent.name
+    else:
+        out = Path("data/embeddings") / (args.model or "resnet50")
     meta = build_index(
-        args.catalog, args.data_dir, out, args.model, args.image_size,
-        args.batch_size, args.num_workers, args.device, args.limit,
+        args.catalog, args.data_dir, out, args.model if args.checkpoint else (args.model or "resnet50"),
+        args.image_size, args.batch_size, args.num_workers, args.device, args.limit,
+        checkpoint=args.checkpoint,
     )
-    print(f"{meta['n_images']} embeddings de dimension {meta['dim']} ({meta['model']}, {meta['device']})")
+    kind = "fine-tuné" if meta["fine_tuned"] else "ImageNet"
+    print(f"{meta['n_images']} embeddings de dimension {meta['dim']} ({meta['model']} {kind}, {meta['device']})")
     print(f"Durée : {meta['extraction_seconds']} s, soit {meta['ms_per_image']} ms/image")
     print(f"Écrit dans {out}")
 
