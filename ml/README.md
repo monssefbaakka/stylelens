@@ -4,9 +4,10 @@ Expérimentations : données, embeddings CNN, fine-tuning, évaluation.
 
 ```
 ml/
-├── stylelens/   # code réutilisable : data.py (P1), embeddings.py, search.py, evaluate.py (P2)
+├── stylelens/   # code réutilisable : data.py (P1), embeddings.py, search.py, evaluate.py (P2),
+│                #   train.py, compare.py (P3)
 ├── tests/       # tests pytest
-├── notebooks/   # 01_poc_embeddings.ipynb (preuve de concept)
+├── notebooks/   # 01_poc_embeddings.ipynb (preuve de concept), 02_fine_tuning.ipynb (P1 → P3 sur GPU)
 ├── data/        # jeu de données (ignoré par git)
 └── models/      # poids entraînés (ignorés par git)
 ```
@@ -96,6 +97,39 @@ Définitions (moyennes sur les requêtes) :
 | mAP@K | moyenne de AP@K = Σₖ P@k · relₖ / min(K, pertinents) |
 
 Les splits P1 séparent les produits : une requête ne retrouve jamais une déclinaison de son propre produit, le score mesure donc la ressemblance visuelle et non la détection de quasi-doublons. Avec une étiquette de classe comme critère, Recall@K reste faible par construction (des centaines de pertinents par classe) : Precision@K et mAP@K sont les métriques principales.
+
+## P3 — Transfert d'apprentissage et fine-tuning
+
+```bash
+cd ml
+# 1. Fine-tuning (GPU conseillé : notebooks/02_fine_tuning.ipynb sur Colab ou Kaggle)
+python -m stylelens.train --backbone resnet50 --out models/resnet50-ft
+
+# 2. Embeddings du catalogue avec le modèle fine-tuné
+python -m stylelens.embeddings --checkpoint models/resnet50-ft/model.pt     # → data/embeddings/resnet50-ft
+
+# 3. Comparaison avec et sans fine-tuning, même protocole que P2
+python -m stylelens.compare data/embeddings/resnet50 data/embeddings/resnet50-ft --out data/comparaison.md
+```
+
+Essai rapide sur CPU : `--backbone mobilenet_v3_large --image-size 128 --steps-per-epoch 20 --epochs 3`.
+
+Méthode :
+
+| Élément | Choix | Raison |
+|---------|-------|--------|
+| Modèle | backbone ImageNet + projection linéaire 512-d + BatchNorm, sortie normalisée L2 (`--embed-dim`, 0 = sans projection) | embedding plus compact (512 au lieu de 2048) : index pgvector 4× plus petit |
+| Perte | classification cosinus à marge **CosFace** sur `articleType` (s = 30, m = 0,2) | optimise directement la similarité cosinus utilisée par la recherche ; stable, sans minage de triplets |
+| Calendrier | 2 époques backbone gelé, puis réseau complet ; LR backbone = 0,1 × LR tête, remontée linéaire sur une époque après le dégel ; décroissance cosinus ; AdamW | la tête converge avant de toucher aux poids ImageNet |
+| BatchNorm | statistiques du backbone figées par défaut (`--train-bn` pour les mettre à jour) | au dégel, des petits lots d'images sur fond blanc faussent les statistiques ImageNet : sur le jeu de test synthétique, la perte remonte de 1,5 à 4,0 sans ce gel, contre 0,0002 avec |
+| Déséquilibre | échantillonnage pondéré ∝ 1/√effectif de la classe (`--balance`) | les classes rares sont vues plus souvent sans être sur-apprises |
+| Augmentations | pad-to-square, recadrage aléatoire léger (75–100 %), miroir horizontal, luminosité et contraste ; **teinte inchangée** | la couleur est un critère de ressemblance pour l'utilisateur |
+| Sélection | mAP@10 de recherche sur `val` à chaque époque, meilleur checkpoint conservé, arrêt anticipé (`--patience 4`) | le split `test` reste réservé à la comparaison finale |
+| GPU | précision mixte automatique (`--no-amp` pour la désactiver) | |
+
+Sorties dans `models/<backbone>-ft/` (ignoré par git) : `model.pt` (poids, configuration, classes, métriques de l'époque retenue), `history.json` (perte, précision, métriques val par époque), `summary.json`.
+
+`stylelens.compare` évalue chaque index avec le même protocole et produit un tableau Markdown pour le rapport : P@1, P@10, mAP@10, Hit@5, R@20, gain de mAP@10 par rapport au premier index, temps d'extraction et latence kNN p95.
 
 ## Preuve de concept (semaine 1)
 

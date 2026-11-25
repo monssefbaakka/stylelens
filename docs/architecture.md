@@ -24,7 +24,8 @@ flowchart LR
 | Sujet | Choix |
 |-------|-------|
 | Extraction | CNN pré-entraîné ImageNet (ResNet50, EfficientNet-B0 ou MobileNetV3), sans couche de classification |
-| Embedding | sortie de l'avant-dernière couche, normalisée L2 |
+| Embedding | sortie de l'avant-dernière couche, normalisée L2 ; après fine-tuning : projection 512-d normalisée L2 |
+| Fine-tuning | perte cosinus à marge (CosFace) sur `articleType`, backbone d'abord gelé puis dégelé avec un LR réduit |
 | Similarité | cosinus (= produit scalaire sur vecteurs normalisés) |
 | Index | HNSW dans pgvector (`vector_cosine_ops`) |
 | Évaluation | Precision@K, Recall@K, mAP ; avec et sans fine-tuning ; latence moyenne et p95 |

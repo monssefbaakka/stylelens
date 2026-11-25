@@ -92,7 +92,8 @@ def main(argv: list[str] | None = None) -> None:
     from stylelens.embeddings_io import load_index
 
     gallery, index, meta = load_index(args.index)
-    query = embed_images([args.image], meta["model"], device=args.device, image_size=meta["image_size"])
+    query = embed_images([args.image], meta["model"], device=args.device,
+                         image_size=meta["image_size"], checkpoint=meta.get("checkpoint"))
 
     if args.category:
         keep = (index["masterCategory"] == args.category).to_numpy()
