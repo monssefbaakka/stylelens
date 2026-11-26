@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  getCategories, searchByImage, searchSimilar, validateImage,
-  type Category, type SearchItem, type SearchResponse,
+  getFacets, NO_FILTERS, searchByImage, searchSimilar, validateImage,
+  type Facets, type FilterKey, type Filters, type SearchItem, type SearchResponse,
 } from './api'
-import { CategoryFilter } from './components/CategoryFilter'
+import { FilterPanel } from './components/FilterPanel'
 import { ResultsGrid } from './components/ResultsGrid'
 import { UploadZone } from './components/UploadZone'
-import { categoryLabel, formatMs } from './labels'
+import { updateFilters } from './filters'
+import { filtersSummary, formatMs } from './labels'
 
 /** Requête en cours : une photo envoyée, ou un produit du catalogue (« articles similaires »). */
 type Query =
@@ -16,7 +17,7 @@ type Query =
 /** Une recherche = requête + filtres ; le résultat affiché doit correspondre à la recherche courante. */
 interface Search {
   query: Query
-  category: string | null
+  filters: Filters
   k: number
 }
 
@@ -30,26 +31,31 @@ const K_OPTIONS = [12, 24, 48]
 
 export default function App() {
   const [query, setQuery] = useState<Query | null>(null)
-  const [category, setCategory] = useState<string | null>(null)
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS)
   const [k, setK] = useState(K_OPTIONS[0])
-  const [categories, setCategories] = useState<Category[]>([])
+  const [facets, setFacets] = useState<Facets | null>(null)
   const [outcome, setOutcome] = useState<Outcome | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
+  // Valeurs proposées par chaque filtre, recalculées selon les filtres déjà choisis.
   useEffect(() => {
     const controller = new AbortController()
-    getCategories(controller.signal).then(setCategories).catch(() => setCategories([]))
+    getFacets(filters, controller.signal)
+      .then(setFacets)
+      .catch(() => {
+        // garde les facettes précédentes ; l'erreur éventuelle s'affiche avec la recherche
+      })
     return () => controller.abort()
-  }, [])
+  }, [filters])
 
-  const search = useMemo<Search | null>(() => (query ? { query, category, k } : null), [query, category, k])
+  const search = useMemo<Search | null>(() => (query ? { query, filters, k } : null), [query, filters, k])
 
-  // Nouvelle recherche à chaque changement de requête, de catégorie ou de nombre de résultats ;
+  // Nouvelle recherche à chaque changement de requête, de filtres ou de nombre de résultats ;
   // la précédente est annulée pour ne jamais afficher une réponse périmée.
   useEffect(() => {
     if (!search) return
     const controller = new AbortController()
-    const options = { category: search.category, k: search.k }
+    const options = { filters: search.filters, k: search.k }
     const pending = search.query.kind === 'image'
       ? searchByImage(search.query.file, options, controller.signal)
       : searchSimilar(search.query.product.id, options, controller.signal)
@@ -81,11 +87,16 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [])
 
+  const onFilter = useCallback((key: FilterKey, value: string | null) => {
+    setFilters((current) => updateFilters(current, key, value))
+  }, [])
+
   const current = outcome?.search === search ? outcome : null
   const loading = search !== null && current === null
   const response = current?.response ?? null
   const error = uploadError ?? current?.error ?? null
   const results = response?.results ?? []
+  const summary = filtersSummary(filters)
 
   return (
     <div className="app">
@@ -118,7 +129,7 @@ export default function App() {
               </figcaption>
             </figure>
             <UploadZone onFile={onFile} compact />
-            <CategoryFilter categories={categories} value={category} onChange={setCategory} />
+            <FilterPanel facets={facets} filters={filters} onChange={onFilter} onReset={() => setFilters(NO_FILTERS)} />
             <label className="field">
               <span>Résultats</span>
               <select value={k} onChange={(e) => setK(Number(e.target.value))}>
@@ -129,7 +140,7 @@ export default function App() {
 
           <section className="results" aria-live="polite">
             <div className="results__head">
-              <h2>{category ? categoryLabel(category) : 'Tous les articles'}</h2>
+              <h2>{summary ?? 'Tous les articles'}</h2>
               {response && (
                 <p className="results__meta">
                   {results.length} résultat{results.length > 1 ? 's' : ''} · {formatMs(response.timings.totalMs)}
@@ -138,10 +149,9 @@ export default function App() {
             </div>
             {error && <p className="alert" role="alert">{error}</p>}
             {response && results.length === 0 && (
-              <p className="empty">Aucun article trouvé{category ? ` dans « ${categoryLabel(category)} »` : ''}.</p>
+              <p className="empty">Aucun article ne correspond{summary ? ` à « ${summary} »` : ''}. Essayez d'enlever un filtre.</p>
             )}
-            <ResultsGrid items={results} loading={loading}
-              placeholders={k} onSimilar={onSimilar} />
+            <ResultsGrid items={results} loading={loading} placeholders={k} onSimilar={onSimilar} />
           </section>
         </main>
       )}

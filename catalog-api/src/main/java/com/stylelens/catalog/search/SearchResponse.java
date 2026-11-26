@@ -1,6 +1,7 @@
 package com.stylelens.catalog.search;
 
 import com.stylelens.catalog.product.Product;
+import com.stylelens.catalog.product.ProductFilters;
 import java.util.List;
 
 /** Résultat d'une recherche : produits triés par similarité décroissante. */
@@ -23,8 +24,8 @@ public record SearchResponse(List<Item> results, Query query, Timings timings) {
         }
     }
 
-    /** {@code productId} : produit de départ d'une recherche « articles similaires ». */
-    public record Query(String category, int k, Long productId) {
+    /** Filtres appliqués ; {@code productId} : produit de départ d'une recherche « articles similaires ». */
+    public record Query(ProductFilters filters, int k, Long productId) {
     }
 
     /** Durées en millisecondes : embedding (service IA, absent pour « similaires »), kNN, total. */

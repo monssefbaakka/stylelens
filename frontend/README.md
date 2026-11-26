@@ -10,8 +10,9 @@ React 19 · TypeScript · Vite · Vitest + Testing Library · oxlint.
 
 - dépôt d'image par glisser-déposer, sélection de fichier ou collage (Ctrl+V) ; vérification locale du format (JPEG, PNG, WebP) et de la taille (10 Mo) avant envoi ;
 - aperçu de l'image envoyée, grille des résultats (photo, nom, type d'article, couleur, catégorie, similarité en %) ;
-- filtres par catégorie (`masterCategory`, avec le nombre de produits) et nombre de résultats (12, 24, 48) : la recherche est relancée, la requête précédente annulée ;
-- « Articles similaires » sur un résultat : nouvelle recherche à partir de ce produit, sans renvoyer d'image ;
+- filtres combinables : catégorie (puces), sous-catégorie, type d'article, genre et couleur (listes), avec le nombre de produits de chaque valeur compte tenu des autres filtres (`GET /api/filters`) ; changer de catégorie efface la sous-catégorie et le type d'article ; bouton « Réinitialiser les filtres » ;
+- nombre de résultats (12, 24, 48) ; à chaque changement, la recherche est relancée et la requête précédente annulée ;
+- « Articles similaires » sur un résultat : nouvelle recherche à partir de ce produit, sans renvoyer d'image, filtres conservés ;
 - états de chargement (squelettes), d'erreur (message de l'API) et résultat vide ; thème clair / sombre selon le système ; mise en page mobile.
 
 ## Lancement
@@ -35,8 +36,9 @@ src/
 ├── App.tsx                   # état de la recherche, annulation des requêtes périmées
 ├── components/
 │   ├── UploadZone.tsx        # glisser-déposer, sélection, collage
-│   ├── CategoryFilter.tsx    # filtres par catégorie
+│   ├── FilterPanel.tsx       # filtres à facettes (catégorie, sous-catégorie, type, genre, couleur)
 │   └── ResultsGrid.tsx       # cartes produit, squelettes de chargement
-├── labels.ts                 # libellés français, formats
+├── filters.ts                # filtres dépendants (catégorie → sous-catégorie → type)
+├── labels.ts                 # libellés français (catégories, genres, couleurs), formats
 └── index.css                 # thème (variables CSS clair / sombre)
 ```

@@ -16,7 +16,7 @@ flowchart LR
 
 1. L'utilisateur dépose une image dans l'interface React (`POST /api/search`, multipart, `category` et `k` facultatifs).
 2. L'API Spring Boot vérifie le format et la taille, puis transmet l'image au service IA (`POST /embed`). Celui-ci redresse l'image (EXIF), l'aplatit sur fond blanc et applique exactement le prétraitement du catalogue avant le CNN : il renvoie un vecteur normalisé L2.
-3. L'API vérifie que la dimension correspond à la colonne `vector(n)`, puis interroge PostgreSQL/pgvector : `ORDER BY embedding <=> requête LIMIT k`, servi par l'index HNSW, avec le filtre `master_category` dans la même requête. `hnsw.ef_search` est fixé par transaction ; avec un filtre, `hnsw.iterative_scan` évite de renvoyer moins de k résultats.
+3. L'API vérifie que la dimension correspond à la colonne `vector(n)`, puis interroge PostgreSQL/pgvector : `ORDER BY embedding <=> requête LIMIT k`, servi par l'index HNSW, avec les filtres (catégorie, sous-catégorie, type d'article, genre, couleur) dans la même requête. `hnsw.ef_search` est fixé par transaction ; avec un filtre, `hnsw.iterative_scan` évite de renvoyer moins de k résultats.
 4. Les résultats (produits, URL d'image, score = similarité cosinus, durées) reviennent à l'interface. « Articles similaires » relance la recherche depuis l'embedding d'un produit déjà en base, sans appel au service IA. Les requêtes fréquentes seront servies par Redis (P7).
 
 ## Cohérence du modèle

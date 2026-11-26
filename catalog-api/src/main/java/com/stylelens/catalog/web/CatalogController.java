@@ -3,6 +3,7 @@ package com.stylelens.catalog.web;
 import com.stylelens.catalog.inference.InferenceClient;
 import com.stylelens.catalog.inference.InferenceUnavailableException;
 import com.stylelens.catalog.product.CategoryCount;
+import com.stylelens.catalog.product.ProductFilters;
 import com.stylelens.catalog.product.ProductRepository;
 import com.stylelens.catalog.search.ProductView;
 import com.stylelens.catalog.search.SearchResponse;
@@ -34,13 +35,20 @@ public class CatalogController {
         this.inference = inference;
     }
 
-    /** Recherche par image : multipart {@code image}, filtre {@code category} (masterCategory) facultatif. */
+    /**
+     * Recherche par image : multipart {@code image} ; filtres facultatifs combinés par ET :
+     * {@code category}, {@code subCategory}, {@code articleType}, {@code gender}, {@code colour}.
+     */
     @PostMapping(path = "/search", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public SearchResponse search(
             @RequestPart("image") MultipartFile image,
             @RequestParam(required = false) String category,
+            @RequestParam(required = false) String subCategory,
+            @RequestParam(required = false) String articleType,
+            @RequestParam(required = false) String gender,
+            @RequestParam(required = false) String colour,
             @RequestParam(required = false) Integer k) {
-        return search.searchByImage(image, category, k);
+        return search.searchByImage(image, new ProductFilters(category, subCategory, articleType, gender, colour), k);
     }
 
     @GetMapping("/products/{id}")
@@ -53,13 +61,31 @@ public class CatalogController {
     public SearchResponse similar(
             @PathVariable long id,
             @RequestParam(required = false) String category,
+            @RequestParam(required = false) String subCategory,
+            @RequestParam(required = false) String articleType,
+            @RequestParam(required = false) String gender,
+            @RequestParam(required = false) String colour,
             @RequestParam(required = false) Integer k) {
-        return search.similarTo(id, category, k);
+        return search.similarTo(id, new ProductFilters(category, subCategory, articleType, gender, colour), k);
     }
 
     @GetMapping("/categories")
     public List<CategoryCount> categories() {
         return search.categories();
+    }
+
+    /**
+     * Valeurs possibles de chaque filtre et nombre de produits correspondants, compte tenu des
+     * autres filtres déjà choisis (mêmes paramètres que la recherche).
+     */
+    @GetMapping("/filters")
+    public Map<String, List<CategoryCount>> filters(
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String subCategory,
+            @RequestParam(required = false) String articleType,
+            @RequestParam(required = false) String gender,
+            @RequestParam(required = false) String colour) {
+        return search.facets(new ProductFilters(category, subCategory, articleType, gender, colour));
     }
 
     /** Catalogue chargé (taille, modèle des embeddings) et modèle servi par le service IA. */

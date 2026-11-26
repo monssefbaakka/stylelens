@@ -28,10 +28,10 @@ describe('searchByImage', () => {
     )
     const file = new File(['img'], 'shoe.png', { type: 'image/png' })
 
-    await searchByImage(file, { category: 'Footwear', k: 24 })
+    await searchByImage(file, { filters: { category: 'Footwear', colour: 'Navy Blue' }, k: 24 })
 
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/search?category=Footwear&k=24')
+    expect(url).toBe('/api/search?category=Footwear&colour=Navy+Blue&k=24')
     expect(init?.method).toBe('POST')
     const body = init?.body
     expect(body).toBeInstanceOf(FormData)
@@ -40,7 +40,7 @@ describe('searchByImage', () => {
 
   it('omits empty parameters', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ results: [] }))
-    await searchByImage(new File(['img'], 'a.png', { type: 'image/png' }), { category: null })
+    await searchByImage(new File(['img'], 'a.png', { type: 'image/png' }), { filters: { category: null } })
     expect(fetchMock.mock.calls[0][0]).toBe('/api/search')
   })
 

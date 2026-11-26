@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Accès à {@code products} : kNN cosinus servi par l'index HNSW de pgvector (P4).
  *
- * <p>Le filtre de catégorie est dans la même requête que le kNN. Avec un filtre, le parcours
+ * <p>Les filtres (catégorie, type d'article, genre, couleur…) sont dans la même requête que le kNN. Avec un filtre, le parcours
  * itératif de pgvector (≥ 0.8, {@code hnsw.iterative_scan = relaxed_order}) continue d'explorer le
  * graphe tant qu'il manque des résultats ; l'ordre peut alors être légèrement approximatif, d'où
  * le tri final par score.
@@ -38,22 +38,23 @@ public class ProductRepository {
     /**
      * Les {@code k} produits les plus proches de {@code vector} (littéral pgvector).
      *
-     * @param category  {@code master_category} imposée, ou {@code null}
+     * @param filters   filtres combinés par ET, appliqués dans la même requête que le kNN
      * @param excludeId produit à exclure (recherche « articles similaires »), ou {@code null}
      */
     @Transactional(readOnly = true)
-    public List<ScoredProduct> findSimilar(String vector, String category, Long excludeId, int k) {
+    public List<ScoredProduct> findSimilar(String vector, ProductFilters filters, Long excludeId, int k) {
         setLocal("hnsw.ef_search", Integer.toString(efSearch));
-        if (category != null) {
+        if (!filters.isEmpty()) {
             setLocal("hnsw.iterative_scan", "relaxed_order");
         }
 
+        ProductFilters.SqlCondition condition = filters.toSql(null);
         List<String> where = new ArrayList<>();
         List<Object> params = new ArrayList<>();
         params.add(vector);
-        if (category != null) {
-            where.add("master_category = ?");
-            params.add(category);
+        if (!condition.sql().isEmpty()) {
+            where.add(condition.sql());
+            params.addAll(condition.params());
         }
         if (excludeId != null) {
             where.add("id <> ?");
@@ -71,6 +72,28 @@ public class ProductRepository {
                 .list());
         results.sort(Comparator.comparingDouble(ScoredProduct::score).reversed());
         return results;
+    }
+
+    /**
+     * Valeurs possibles de chaque filtre avec leur nombre de produits. Chaque dimension est comptée
+     * avec tous les autres filtres actifs, mais pas le sien : on voit les alternatives à la valeur
+     * choisie (recherche à facettes classique). Les valeurs vides ne sont pas proposées.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, List<CategoryCount>> facets(ProductFilters filters) {
+        Map<String, List<CategoryCount>> facets = new LinkedHashMap<>();
+        for (ProductFilters.Facet facet : ProductFilters.Facet.values()) {
+            ProductFilters.SqlCondition condition = filters.toSql(facet);
+            String column = facet.column();
+            String sql = "SELECT " + column + ", count(*) AS n FROM products WHERE " + column + " IS NOT NULL"
+                    + (condition.sql().isEmpty() ? "" : " AND " + condition.sql())
+                    + " GROUP BY " + column + " ORDER BY n DESC, " + column;
+            facets.put(facet.param(), jdbc.sql(sql)
+                    .params(condition.params())
+                    .query((rs, n) -> new CategoryCount(rs.getString(1), rs.getLong(2)))
+                    .list());
+        }
+        return facets;
     }
 
     public Optional<Product> findById(long id) {

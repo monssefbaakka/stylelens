@@ -229,6 +229,12 @@ select {
   font-size: 0.9rem;
 }
 
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .filter {
   margin: 0;
   padding: 0;
