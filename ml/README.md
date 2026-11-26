@@ -5,7 +5,7 @@ Expérimentations : données, embeddings CNN, fine-tuning, évaluation.
 ```
 ml/
 ├── stylelens/   # code réutilisable : data.py (P1), embeddings.py, search.py, evaluate.py (P2),
-│                #   train.py, compare.py (P3)
+│                #   train.py, compare.py (P3), vectordb.py (P4)
 ├── tests/       # tests pytest
 ├── notebooks/   # 01_poc_embeddings.ipynb (preuve de concept), 02_fine_tuning.ipynb (P1 → P3 sur GPU)
 ├── data/        # jeu de données (ignoré par git)
@@ -130,6 +130,39 @@ Méthode :
 Sorties dans `models/<backbone>-ft/` (ignoré par git) : `model.pt` (poids, configuration, classes, métriques de l'époque retenue), `history.json` (perte, précision, métriques val par époque), `summary.json`.
 
 `stylelens.compare` évalue chaque index avec le même protocole et produit un tableau Markdown pour le rapport : P@1, P@10, mAP@10, Hit@5, R@20, gain de mAP@10 par rapport au premier index, temps d'extraction et latence kNN p95.
+
+## P4 — Index vectoriel pgvector (HNSW)
+
+```bash
+# 0. PostgreSQL + schéma (migrations Flyway de catalog-api, appliquées à son démarrage)
+docker compose up -d postgres catalog-api        # depuis la racine du dépôt
+
+# 1. Import du catalogue (depuis ml/)
+python -m stylelens.vectordb load --index data/embeddings/resnet50-ft
+
+# 2. Rappel et latence de l'index HNSW par rapport au kNN exact
+python -m stylelens.vectordb evaluate --index data/embeddings/resnet50-ft --ef-search 20 40 100 200
+python -m stylelens.vectordb evaluate --index data/embeddings/resnet50-ft --filter masterCategory
+```
+
+Connexion : `--dsn postgresql://…`, sinon `$STYLELENS_DSN`, sinon les variables `POSTGRES_*` de `.env`.
+
+Schéma ([`V1__create_products.sql`](../catalog-api/src/main/resources/db/migration/V1__create_products.sql)) :
+
+| Élément | Choix | Raison |
+|---------|-------|--------|
+| `products` | une ligne par image : étiquettes, `image_path`, `split`, `embedding vector(n)` | `n` = `STYLELENS_EMBEDDING_DIM` (512 par défaut, modèle fine-tuné P3) |
+| Index | HNSW `vector_cosine_ops`, `m = 16`, `ef_construction = 64` | embeddings normalisés L2 : distance cosinus `<=>`, score = 1 − distance |
+| Filtre | index B-tree sur `master_category`, condition dans la même requête que le kNN ; `hnsw.iterative_scan = relaxed_order` (pgvector ≥ 0.8) | sans parcours itératif, un filtre sélectif renverrait moins de K résultats |
+| `catalog_meta` | modèle, dimension, nombre de produits, date d'import | l'API vérifie que le service IA utilise le même modèle |
+
+Limite : pgvector n'indexe en HNSW que 2 000 dimensions au plus. ResNet50 brut (2048-d) ne passe pas ; le modèle fine-tuné (512-d), `mobilenet_v3_large` (960-d) et `efficientnet_b0` (1280-d) passent. La base est créée avec la dimension `STYLELENS_EMBEDDING_DIM` ; pour en changer, supprimer le volume (`docker compose down -v`).
+
+`load` remplace tout le catalogue dans une transaction : suppression de l'index HNSW, `TRUNCATE`, `COPY` binaire, reconstruction de l'index avec la définition de la migration (plus rapide qu'une insertion dans le graphe ligne à ligne), `catalog_meta`, puis `ANALYZE`. L'API sert l'ancien catalogue jusqu'au commit.
+
+`evaluate` reprend le protocole P2 (requêtes = `test`, galerie = le reste, pertinent = même `articleType`) sur 1 000 requêtes (`--max-queries`) et écrit `<index>/hnsw.json` : pour chaque `ef_search`, rappel@K par rapport au kNN exact NumPy, Precision@K, mAP@K, latence SQL moyenne et p95, et si le plan utilise bien l'index HNSW. La ligne `exact` est la même requête sans index (parcours séquentiel).
+
+Tests PostgreSQL (schéma temporaire, supprimé à la fin) : `STYLELENS_TEST_DSN=postgresql://stylelens:stylelens@localhost:5432/stylelens python -m pytest`.
 
 ## Preuve de concept (semaine 1)
 

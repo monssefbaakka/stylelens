@@ -5,6 +5,9 @@ pillow>=11.0
 jupyter>=1.1
 kaggle>=1.6
 pytest>=8.0
+# Index vectoriel (P4)
+psycopg[binary]>=3.2
+pgvector>=0.3
 # Deep learning (build CUDA sur Colab/Kaggle, build CPU en local)
 torch>=2.5
 torchvision>=0.20

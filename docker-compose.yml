@@ -4,6 +4,8 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     container_name: stylelens-postgres
+    # construction parallèle de l'index HNSW : mémoire partagée au-delà des 64 Mo par défaut
+    shm_size: 512mb
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-stylelens}
       POSTGRES_USER: ${POSTGRES_USER:-stylelens}
