@@ -2,7 +2,7 @@
 
 **Statut : prêt (phases P4 et P5).**
 
-Catalogue produits, validation des images et orchestration de la recherche : l'image est envoyée au service IA, qui renvoie son embedding, puis PostgreSQL/pgvector renvoie les k produits les plus proches (index HNSW, distance cosinus), filtre de catégorie compris dans la même requête SQL.
+Catalogue produits, validation des images et orchestration de la recherche : l'image est envoyée au service IA, qui renvoie son embedding, puis PostgreSQL/pgvector renvoie les k produits les plus proches (index HNSW, distance cosinus), filtres compris dans la même requête SQL.
 
 Java 21 · Spring Boot 4.1 (Web MVC, JDBC, Flyway, Actuator, Validation) · PostgreSQL + pgvector · Testcontainers.
 
@@ -10,13 +10,26 @@ Java 21 · Spring Boot 4.1 (Web MVC, JDBC, Flyway, Actuator, Validation) · Post
 
 | Méthode | Chemin | Rôle |
 |---------|--------|------|
-| `POST` | `/api/search` | multipart `image` (JPEG, PNG, WebP ≤ 10 Mo) + `category` (masterCategory, facultatif) + `k` (1–60, défaut 12) |
+| `POST` | `/api/search` | multipart `image` (JPEG, PNG, WebP ≤ 10 Mo) + filtres facultatifs (voir ci-dessous) + `k` (1–60, défaut 12) |
 | `GET` | `/api/products/{id}` | fiche produit |
-| `GET` | `/api/products/{id}/similar` | articles similaires à un produit du catalogue (`category`, `k`) ; son embedding est déjà en base, pas d'appel au service IA |
-| `GET` | `/api/categories` | catégories et nombre de produits, pour les filtres |
+| `GET` | `/api/products/{id}/similar` | articles similaires à un produit du catalogue (mêmes filtres, `k`) ; son embedding est déjà en base, pas d'appel au service IA |
+| `GET` | `/api/filters` | valeurs de chaque filtre et nombre de produits, compte tenu des autres filtres choisis (mêmes paramètres) |
+| `GET` | `/api/categories` | catégories principales et nombre de produits |
 | `GET` | `/api/info` | taille du catalogue, modèle des embeddings (`catalog_meta`), modèle servi par le service IA |
 | `GET` | `/images/{id}.jpg` | photos du catalogue (dossier du jeu de données) |
 | `GET` | `/actuator/health` | santé (base de données comprise) |
+
+Filtres, combinés par ET et appliqués dans la même requête SQL que le kNN :
+
+| Paramètre | Colonne | Exemples |
+|-----------|---------|----------|
+| `category` | `master_category` | Apparel, Footwear, Accessories |
+| `subCategory` | `sub_category` | Topwear, Shoes, Watches |
+| `articleType` | `article_type` | Tshirts, Casual Shoes, Handbags |
+| `gender` | `gender` | Men, Women, Boys, Girls, Unisex |
+| `colour` | `base_colour` | Black, Navy Blue, Red |
+
+`/api/filters` compte chaque dimension avec tous les filtres actifs sauf le sien (recherche à facettes) : avec `colour=Red`, la liste `colour` propose toutes les couleurs, les autres listes ne comptent que les produits rouges.
 
 Réponse de recherche :
 
@@ -26,7 +39,7 @@ Réponse de recherche :
     {"id": 1855, "name": "Inkfruit Mens Chain Reaction T-shirt", "gender": "Men", "masterCategory": "Apparel",
      "subCategory": "Topwear", "articleType": "Tshirts", "baseColour": "Grey", "imageUrl": "/images/1855.jpg", "score": 0.8731}
   ],
-  "query": {"category": "Apparel", "k": 12, "productId": null},
+  "query": {"filters": {"category": "Apparel", "subCategory": null, "articleType": "Tshirts", "gender": null, "colour": null}, "k": 12, "productId": null},
   "timings": {"embeddingMs": 41.2, "searchMs": 3.8, "totalMs": 45.3}
 }
 ```
@@ -37,7 +50,7 @@ Réponse de recherche :
 
 Migrations Flyway dans [`src/main/resources/db/migration`](src/main/resources/db/migration) : table `products` (colonne `embedding vector(n)`), index HNSW `vector_cosine_ops`, index sur `master_category`, table `catalog_meta`. La dimension `n` vient de `STYLELENS_EMBEDDING_DIM`. Le contenu est importé par `python -m stylelens.vectordb load` (voir [ml/README.md](../ml/README.md#p4--index-vectoriel-pgvector-hnsw)).
 
-Chaque recherche fixe dans sa transaction `hnsw.ef_search` (`STYLELENS_EF_SEARCH`, 100 par défaut) et, avec un filtre, `hnsw.iterative_scan = relaxed_order` (pgvector ≥ 0.8) pour toujours obtenir k résultats ; les résultats sont retriés par score.
+Chaque recherche fixe dans sa transaction `hnsw.ef_search` (`STYLELENS_EF_SEARCH`, 100 par défaut) et, avec au moins un filtre, `hnsw.iterative_scan = relaxed_order` (pgvector ≥ 0.8) pour toujours obtenir k résultats ; les résultats sont retriés par score.
 
 Cohérence avec le service IA : une dimension différente de la colonne renvoie `502` avec un message explicite ; un modèle différent de celui de `catalog_meta` (même dimension) est signalé dans les journaux et visible dans `/api/info`.
 

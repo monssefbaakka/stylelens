@@ -29,6 +29,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.BAD_REQUEST, "Requête invalide", e.getMessage());
     }
 
+    /** Valeur de filtre invalide ({@code ProductFilters}). */
+    @ExceptionHandler(IllegalArgumentException.class)
+    ProblemDetail illegalArgument(IllegalArgumentException e) {
+        return problem(HttpStatus.BAD_REQUEST, "Requête invalide", e.getMessage());
+    }
+
     @ExceptionHandler(UnsupportedImageTypeException.class)
     ProblemDetail unsupportedType(UnsupportedImageTypeException e) {
         return problem(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Format d'image non accepté", e.getMessage());

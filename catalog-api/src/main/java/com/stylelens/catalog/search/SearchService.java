@@ -5,6 +5,7 @@ import com.stylelens.catalog.inference.Embedding;
 import com.stylelens.catalog.inference.InferenceClient;
 import com.stylelens.catalog.product.CategoryCount;
 import com.stylelens.catalog.product.Product;
+import com.stylelens.catalog.product.ProductFilters;
 import com.stylelens.catalog.product.ProductRepository;
 import com.stylelens.catalog.product.ScoredProduct;
 import com.stylelens.catalog.product.Vectors;
@@ -25,7 +26,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-/** Orchestration de la recherche : image → service IA (embedding) → kNN pgvector avec filtre. */
+/** Orchestration de la recherche : image → service IA (embedding) → kNN pgvector avec filtres. */
 @Service
 public class SearchService {
 
@@ -43,9 +44,8 @@ public class SearchService {
         this.properties = properties;
     }
 
-    public SearchResponse searchByImage(MultipartFile image, String category, Integer k) {
+    public SearchResponse searchByImage(MultipartFile image, ProductFilters filters, Integer k) {
         int limit = resolveK(k);
-        String cat = normalize(category);
         if (image == null || image.isEmpty()) {
             throw new BadRequestException("Image manquante (champ multipart « image »)");
         }
@@ -61,21 +61,20 @@ public class SearchService {
         double embeddingMs = millis(t0);
 
         long t1 = System.nanoTime();
-        List<ScoredProduct> hits = products.findSimilar(Vectors.toLiteral(embedding.embedding()), cat, null, limit);
+        List<ScoredProduct> hits = products.findSimilar(Vectors.toLiteral(embedding.embedding()), filters, null, limit);
         double searchMs = millis(t1);
-        return new SearchResponse(items(hits), new SearchResponse.Query(cat, limit, null),
+        return new SearchResponse(items(hits), new SearchResponse.Query(filters, limit, null),
                 new SearchResponse.Timings(round(embeddingMs), round(searchMs), round(millis(t0))));
     }
 
     /** Articles ressemblant à un produit du catalogue : son embedding est déjà en base, pas d'appel au service IA. */
-    public SearchResponse similarTo(long productId, String category, Integer k) {
+    public SearchResponse similarTo(long productId, ProductFilters filters, Integer k) {
         int limit = resolveK(k);
-        String cat = normalize(category);
         long t0 = System.nanoTime();
         String vector = products.findEmbedding(productId).orElseThrow(() -> new ProductNotFoundException(productId));
-        List<ScoredProduct> hits = products.findSimilar(vector, cat, productId, limit);
+        List<ScoredProduct> hits = products.findSimilar(vector, filters, productId, limit);
         double ms = round(millis(t0));
-        return new SearchResponse(items(hits), new SearchResponse.Query(cat, limit, productId),
+        return new SearchResponse(items(hits), new SearchResponse.Query(filters, limit, productId),
                 new SearchResponse.Timings(null, ms, ms));
     }
 
@@ -86,6 +85,10 @@ public class SearchService {
 
     public List<CategoryCount> categories() {
         return products.categories();
+    }
+
+    public Map<String, List<CategoryCount>> facets(ProductFilters filters) {
+        return products.facets(filters);
     }
 
     String imageUrl(Product p) {
@@ -128,10 +131,6 @@ public class SearchService {
                         e.model(), e.fineTuned(), model, fineTuned);
             }
         }
-    }
-
-    private static String normalize(String category) {
-        return category == null || category.isBlank() ? null : category.trim();
     }
 
     private static byte[] bytes(MultipartFile file) {

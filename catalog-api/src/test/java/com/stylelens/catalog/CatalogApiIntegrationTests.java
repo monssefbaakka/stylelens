@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.stylelens.catalog.inference.Embedding;
 import com.stylelens.catalog.inference.InferenceClient;
+import com.stylelens.catalog.product.ProductFilters;
 import com.stylelens.catalog.product.ProductRepository;
 import com.stylelens.catalog.product.ScoredProduct;
 import java.nio.file.Files;
@@ -64,21 +65,24 @@ class CatalogApiIntegrationTests {
     void seed() throws Exception {
         jdbc.sql("TRUNCATE products").update();
         jdbc.sql("DELETE FROM catalog_meta").update();
-        insert(1, "Red Tee", "Apparel", "Tshirts", "[1,0,0]");
-        insert(2, "Pink Tee", "Apparel", "Tshirts", "[0.9,0.1,0]");
-        insert(3, "Red Sneaker", "Footwear", "Casual Shoes", "[0.8,0,0.2]");
-        insert(4, "Blue Watch", "Accessories", "Watches", "[0,0,1]");
+        insert(1, "Red Tee", "Apparel", "Topwear", "Tshirts", "Men", "Red", "[1,0,0]");
+        insert(2, "Pink Tee", "Apparel", "Topwear", "Tshirts", "Women", "Pink", "[0.9,0.1,0]");
+        insert(3, "Red Sneaker", "Footwear", "Shoes", "Casual Shoes", "Men", "Red", "[0.8,0,0.2]");
+        insert(4, "Blue Watch", "Accessories", "Watches", "Watches", "Women", "Blue", "[0,0,1]");
+        insert(5, "Red Dress", "Apparel", "Dress", "Dresses", "Women", "Red", "[0.7,0.3,0]");
         jdbc.sql("INSERT INTO catalog_meta (key, value) VALUES ('model', 'resnet50'), ('fine_tuned', 'true')").update();
 
         Files.createDirectories(images.resolve("images"));
         Files.write(images.resolve("images/1.jpg"), new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF});
     }
 
-    private void insert(long id, String name, String master, String article, String vector) {
+    private void insert(long id, String name, String master, String sub, String article, String gender,
+            String colour, String vector) {
         jdbc.sql("""
-                INSERT INTO products (id, name, master_category, article_type, image_path, split, embedding)
-                VALUES (?, ?, ?, ?, ?, 'train', CAST(? AS vector))
-                """).params(id, name, master, article, "images/" + id + ".jpg", vector).update();
+                INSERT INTO products (id, name, master_category, sub_category, article_type, gender, base_colour,
+                                      image_path, split, embedding)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'train', CAST(? AS vector))
+                """).params(id, name, master, sub, article, gender, colour, "images/" + id + ".jpg", vector).update();
     }
 
     @Test
@@ -90,7 +94,7 @@ class CatalogApiIntegrationTests {
 
     @Test
     void knnReturnsNearestFirstWithCosineScore() {
-        List<ScoredProduct> hits = products.findSimilar("[1,0,0]", null, null, 3);
+        List<ScoredProduct> hits = products.findSimilar("[1,0,0]", ProductFilters.NONE, null, 3);
         assertThat(hits).extracting(h -> h.product().id()).containsExactly(1L, 2L, 3L);
         assertThat(hits.get(0).score()).isCloseTo(1.0, org.assertj.core.data.Offset.offset(1e-6));
         assertThat(hits.get(1).score()).isLessThan(hits.get(0).score());
@@ -127,8 +131,51 @@ class CatalogApiIntegrationTests {
         mvc.perform(get("/api/categories"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].name").value("Apparel"))
-                .andExpect(jsonPath("$[0].count").value(2))
+                .andExpect(jsonPath("$[0].count").value(3))
                 .andExpect(jsonPath("$.length()").value(3));
+    }
+
+    @Test
+    void combinedFiltersRestrictKnnResults() {
+        List<ScoredProduct> hits = products.findSimilar("[1,0,0]", new ProductFilters(null, null, null, "Women", "Red"), null, 5);
+        assertThat(hits).extracting(h -> h.product().id()).containsExactly(5L);
+
+        hits = products.findSimilar("[1,0,0]", new ProductFilters("Apparel", null, null, "Men", null), null, 5);
+        assertThat(hits).extracting(h -> h.product().id()).containsExactly(1L);
+
+        hits = products.findSimilar("[1,0,0]", new ProductFilters(null, null, "Tshirts", null, null), 1L, 5);
+        assertThat(hits).extracting(h -> h.product().id()).containsExactly(2L);
+    }
+
+    @Test
+    void facetsCountEachDimensionWithTheOtherFilters() throws Exception {
+        // colour=Red : chaque dimension est comptée parmi les produits rouges, sauf la couleur elle-même
+        mvc.perform(get("/api/filters").param("colour", "Red"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.category[0].name").value("Apparel"))
+                .andExpect(jsonPath("$.category[0].count").value(2))
+                .andExpect(jsonPath("$.category[1].name").value("Footwear"))
+                .andExpect(jsonPath("$.category.length()").value(2))
+                .andExpect(jsonPath("$.gender[0].name").value("Men"))
+                .andExpect(jsonPath("$.gender[0].count").value(2))
+                .andExpect(jsonPath("$.colour.length()").value(3))
+                .andExpect(jsonPath("$.colour[0].name").value("Red"))
+                .andExpect(jsonPath("$.colour[0].count").value(3))
+                .andExpect(jsonPath("$.articleType.length()").value(3))
+                .andExpect(jsonPath("$.subCategory.length()").value(3));
+    }
+
+    @Test
+    void searchByImageCombinesFilters() throws Exception {
+        when(inference.embed(any(), any(), any()))
+                .thenReturn(new Embedding(new float[] {1f, 0f, 0f}, 3, "resnet50", true, 5));
+        var photo = new MockMultipartFile("image", "q.png", "image/png", new byte[] {1});
+
+        mvc.perform(multipart("/api/search").file(photo).param("gender", "Women").param("category", "Apparel"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results.length()").value(2))
+                .andExpect(jsonPath("$.results[0].id").value(2))
+                .andExpect(jsonPath("$.results[1].id").value(5));
     }
 
     @Test
