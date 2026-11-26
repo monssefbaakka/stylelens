@@ -1,5 +1,7 @@
-# Semaine 1 : uniquement PostgreSQL + pgvector.
-# Les autres services (inference-service, catalog-api, frontend, redis) seront ajoutés dans les phases suivantes.
+# StyleLens : PostgreSQL + pgvector, service IA, API catalogue, interface.
+#   docker compose up -d --build         puis http://localhost:3000
+# Le catalogue est importé à part : python -m stylelens.vectordb load (voir ml/README.md, P4).
+# Cache Redis, observabilité et CI viendront en P7–P8.
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -21,5 +23,51 @@ services:
       timeout: 5s
       retries: 10
 
+  inference-service:
+    build:
+      context: .
+      dockerfile: inference-service/Dockerfile
+    container_name: stylelens-inference
+    environment:
+      # Vide : backbone ImageNet MODEL_NAME (STYLELENS_EMBEDDING_DIM doit suivre, ex. 960 pour mobilenet_v3_large).
+      MODEL_CHECKPOINT: ${MODEL_CHECKPOINT-/models/resnet50-ft/model.pt}
+      MODEL_NAME: ${MODEL_NAME:-resnet50}
+    volumes:
+      - ./ml/models:/models:ro
+      - torch-cache:/cache/torch
+    ports:
+      - "${INFERENCE_PORT:-8000}:8000"
+
+  catalog-api:
+    build: ./catalog-api
+    container_name: stylelens-catalog-api
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-stylelens}
+      POSTGRES_USER: ${POSTGRES_USER:-stylelens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stylelens}
+      STYLELENS_EMBEDDING_DIM: ${STYLELENS_EMBEDDING_DIM:-512}
+      INFERENCE_URL: http://inference-service:8000
+      STYLELENS_IMAGES_DIR: /data
+    volumes:
+      - ${STYLELENS_DATA_DIR:-./ml/data/fashion-product-images-small}:/data:ro
+    ports:
+      - "${CATALOG_API_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      inference-service:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    container_name: stylelens-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - catalog-api
+
 volumes:
   pgdata:
+  torch-cache:
