@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: catalog-api
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:stylelens}
+    username: ${POSTGRES_USER:stylelens}
+    password: ${POSTGRES_PASSWORD:stylelens}
+  flyway:
+    placeholders:
+      embedding_dim: ${stylelens.embedding-dim}
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
+  mvc:
+    problemdetails:
+      enabled: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+stylelens:
+  # Dimension de products.embedding : doit correspondre au modèle du service IA.
+  embedding-dim: ${STYLELENS_EMBEDDING_DIM:512}
+  inference:
+    base-url: ${INFERENCE_URL:http://localhost:8000}
+    connect-timeout: 2s
+    read-timeout: 15s
+  search:
+    default-k: 12
+    max-k: 60
+    # Candidats explorés dans le graphe HNSW (rappel / latence, voir stylelens.vectordb evaluate).
+    ef-search: ${STYLELENS_EF_SEARCH:100}
+  images:
+    # Dossier du jeu de données : products.image_path (images/<id>.jpg) y est relatif.
+    dir: ${STYLELENS_IMAGES_DIR:../ml/data/fashion-product-images-small}
+    base-url: ${STYLELENS_IMAGES_BASE_URL:/}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
