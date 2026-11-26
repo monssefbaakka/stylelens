@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+# ../ml : le service réutilise stylelens.embeddings (même prétraitement que le catalogue)
+pythonpath = [".", "../ml"]
+testpaths = ["tests"]

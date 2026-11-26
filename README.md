@@ -23,28 +23,45 @@ Détails : [docs/architecture.md](docs/architecture.md).
 
 ```
 stylelens/
-├── ml/                 # pipeline IA : données (P1), embeddings CNN + kNN + évaluation (P2)
-├── inference-service/  # service IA FastAPI (à venir, P5)
-├── catalog-api/        # API métier Spring Boot (à venir, P4–P5)
-├── frontend/           # interface React + TypeScript (à venir, P6)
+├── ml/                 # pipeline IA : données (P1), embeddings CNN + kNN (P2), fine-tuning (P3), import pgvector (P4)
+├── inference-service/  # service IA FastAPI : image → embedding (P5)
+├── catalog-api/        # API Spring Boot : schéma pgvector HNSW (P4), recherche, catalogue (P5)
+├── frontend/           # interface React + TypeScript : recherche par image, filtres (P6)
 ├── db/init/            # scripts SQL exécutés au premier démarrage de PostgreSQL
 ├── docs/               # architecture et documentation
-└── docker-compose.yml  # pour l'instant : PostgreSQL + pgvector
+└── docker-compose.yml  # PostgreSQL + pgvector, service IA, API, interface
 ```
 
-## Démarrage (semaine 1)
+## Démarrage
 
-### 1. Base de données PostgreSQL + pgvector
+### 1. Données, modèle et embeddings
+
+Voir [ml/README.md](ml/README.md) : téléchargement de *Fashion Product Images*, préparation (P1), fine-tuning sur GPU (P3, `ml/models/resnet50-ft/model.pt`) et embeddings du catalogue (`data/embeddings/resnet50-ft`).
+
+### 2. Application complète
 
 ```bash
 cp .env.example .env
-docker compose up -d
-docker compose exec postgres psql -U stylelens -d stylelens -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
+docker compose up -d --build                               # PostgreSQL, service IA, API, interface
+cd ml && python -m stylelens.vectordb load --index data/embeddings/resnet50-ft   # import du catalogue (P4)
 ```
 
-### 2. Données et preuve de concept
+| Service | URL |
+|---------|-----|
+| Interface | http://localhost:3000 |
+| API catalogue | http://localhost:8080/api/info |
+| Service IA | http://localhost:8000/docs |
 
-Voir [ml/README.md](ml/README.md) : téléchargement de *Fashion Product Images*, puis notebook `ml/notebooks/01_poc_embeddings.ipynb` (ResNet50 → embeddings de 1 000 images → recherche par similarité cosinus).
+Le service IA, la dimension de la base (`STYLELENS_EMBEDDING_DIM`) et les embeddings importés doivent venir du même modèle. Sans modèle fine-tuné, un backbone ImageNet indexable convient : `MODEL_CHECKPOINT=` (vide), `MODEL_NAME=mobilenet_v3_large`, `STYLELENS_EMBEDDING_DIM=960`, embeddings `python -m stylelens.embeddings --model mobilenet_v3_large`.
+
+### Tests
+
+```bash
+cd ml && python -m pytest                      # + STYLELENS_TEST_DSN=postgresql://… pour les tests pgvector
+cd inference-service && python -m pytest
+cd catalog-api && ./mvnw test                  # tests PostgreSQL via Testcontainers si Docker est disponible
+cd frontend && npm test
+```
 
 ## Feuille de route
 
@@ -53,10 +70,10 @@ Voir [ml/README.md](ml/README.md) : téléchargement de *Fashion Product Images*
 | P0 | Cadrage, environnement, dépôt Git | En cours |
 | P1 | Données : collecte, nettoyage, séparation par produit | En cours (pipeline prêt, à exécuter sur le jeu complet) |
 | P2 | Modèle de base : embeddings CNN + recherche kNN simple | En cours (extraction, recherche et évaluation prêtes, à exécuter sur le jeu complet) |
-| P3 | Transfert d'apprentissage, fine-tuning, évaluation (Precision@K, Recall@K, mAP) | À faire |
-| P4 | Index vectoriel pgvector (HNSW) | À faire |
-| P5 | Service IA FastAPI + API catalogue Spring Boot | À faire |
-| P6 | Interface React : recherche par image, filtres par catégorie | À faire |
+| P3 | Transfert d'apprentissage, fine-tuning, évaluation (Precision@K, Recall@K, mAP) | En cours (entraînement et comparaison prêts, à exécuter sur GPU) |
+| P4 | Index vectoriel pgvector (HNSW) | En cours (schéma, import et mesure du rappel prêts, à exécuter sur le jeu complet) |
+| P5 | Service IA FastAPI + API catalogue Spring Boot | En cours (services prêts et testés, à brancher sur le modèle fine-tuné) |
+| P6 | Interface React : recherche par image, filtres par catégorie | En cours (interface prête et testée) |
 | P7 | Cache Redis, indexation Kafka (optionnel), tests | À faire |
 | P8 | Docker Compose complet, observabilité, CI | À faire |
 | P9 | Documentation, rapport, démo vidéo | À faire |
