@@ -1,0 +1,8 @@
+# Service : FastAPI + modèle de ml/stylelens (torch / torchvision installés à part,
+# build CPU dans le Dockerfile : --index-url https://download.pytorch.org/whl/cpu)
+fastapi>=0.115
+uvicorn[standard]>=0.32
+python-multipart>=0.0.12
+numpy>=2.0
+pandas>=2.2
+pillow>=11.0
