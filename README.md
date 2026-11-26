@@ -73,7 +73,7 @@ cd frontend && npm test
 | P3 | Transfert d'apprentissage, fine-tuning, évaluation (Precision@K, Recall@K, mAP) | En cours (entraînement et comparaison prêts, à exécuter sur GPU) |
 | P4 | Index vectoriel pgvector (HNSW) | En cours (schéma, import et mesure du rappel prêts, à exécuter sur le jeu complet) |
 | P5 | Service IA FastAPI + API catalogue Spring Boot | En cours (services prêts et testés, à brancher sur le modèle fine-tuné) |
-| P6 | Interface React : recherche par image, filtres par catégorie | En cours (interface prête et testée) |
+| P6 | Interface React : recherche par image, filtres par catégorie | En cours (interface prête et testée ; filtres catégorie, sous-catégorie, type d'article, genre, couleur) |
 | P7 | Cache Redis, indexation Kafka (optionnel), tests | À faire |
 | P8 | Docker Compose complet, observabilité, CI | À faire |
 | P9 | Documentation, rapport, démo vidéo | À faire |

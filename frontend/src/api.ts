@@ -16,19 +16,31 @@ export interface SearchItem extends Product {
   score: number
 }
 
-export interface SearchResponse {
-  results: SearchItem[]
-  query: { category: string | null; k: number; productId: number | null }
-  timings: { embeddingMs: number | null; searchMs: number; totalMs: number }
-}
+/** Dimensions filtrables, dans l'ordre d'affichage (mêmes noms que les paramètres de l'API). */
+export const FILTER_KEYS = ['category', 'subCategory', 'articleType', 'gender', 'colour'] as const
+export type FilterKey = (typeof FILTER_KEYS)[number]
 
-export interface Category {
+/** Filtres combinés par ET ; null = filtre inactif. */
+export type Filters = Record<FilterKey, string | null>
+
+export const NO_FILTERS: Filters = { category: null, subCategory: null, articleType: null, gender: null, colour: null }
+
+export interface FacetValue {
   name: string
   count: number
 }
 
+/** Valeurs possibles de chaque filtre, comptées avec les autres filtres actifs. */
+export type Facets = Record<FilterKey, FacetValue[]>
+
+export interface SearchResponse {
+  results: SearchItem[]
+  query: { filters: Filters; k: number; productId: number | null }
+  timings: { embeddingMs: number | null; searchMs: number; totalMs: number }
+}
+
 export interface SearchOptions {
-  category?: string | null
+  filters?: Partial<Filters>
   k?: number
 }
 
@@ -55,10 +67,17 @@ export function validateImage(file: File): string | null {
   return null
 }
 
-function queryString(options: SearchOptions): string {
+export function activeFilterCount(filters: Filters): number {
+  return FILTER_KEYS.filter((key) => filters[key]).length
+}
+
+function queryString({ filters = {}, k }: SearchOptions): string {
   const params = new URLSearchParams()
-  if (options.category) params.set('category', options.category)
-  if (options.k) params.set('k', String(options.k))
+  for (const key of FILTER_KEYS) {
+    const value = filters[key]
+    if (value) params.set(key, value)
+  }
+  if (k) params.set('k', String(k))
   const qs = params.toString()
   return qs ? `?${qs}` : ''
 }
@@ -94,6 +113,6 @@ export function searchSimilar(productId: number, options: SearchOptions = {}, si
   return request<SearchResponse>(`/api/products/${productId}/similar${queryString(options)}`, { signal })
 }
 
-export function getCategories(signal?: AbortSignal) {
-  return request<Category[]>('/api/categories', { signal })
+export function getFacets(filters: Filters, signal?: AbortSignal) {
+  return request<Facets>(`/api/filters${queryString({ filters })}`, { signal })
 }
